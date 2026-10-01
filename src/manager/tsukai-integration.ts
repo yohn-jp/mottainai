@@ -2,7 +2,14 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { EXECUTION_PROFILE_SCHEMA_VERSION } from "tsukai";
-import type { ExecutionProfile, ExecutionProfileTool, PiRunRequest, RunOperations, RunSnapshot } from "tsukai";
+import type {
+  ExecutionProfile,
+  ExecutionProfileTool,
+  PiRunRequest,
+  ReconcileReport,
+  RunOperations,
+  RunSnapshot,
+} from "tsukai";
 import type { ExecutionManifest } from "../workflow/domain/execution-manifest.js";
 import type { ManagerSessionId, ManagerSessionRecord, WorkflowStateStore } from "../workflow/state/store.js";
 
@@ -25,6 +32,37 @@ export const TSUKAI_MANAGER_SESSION_METADATA = "mottainaiManagerSessionId" as co
 const LIST_PAGE_LIMIT = 100;
 
 export type TsukaiRunOperations = Pick<RunOperations<PiRunRequest, "pi">, "create" | "get" | "list">;
+
+/**
+ * The released Tsukai run service surface the Manager production path uses.
+ * `createPiRuntime` over a Jinushi execution port satisfies it; Mottainai
+ * never reaches the physical process except through it.
+ */
+export interface ManagerTsukaiRuntime {
+  readonly runs: Pick<
+    RunOperations<PiRunRequest, "pi">,
+    "create" | "get" | "list" | "wait" | "cancel" | "eventsPage" | "result" | "steer"
+  >;
+  /** Tsukai restart reconciliation against backend evidence; never creates or resends. */
+  reconcile(): Promise<ReconcileReport>;
+  /** Stop observing without retiring executions, so a later Manager can reconnect. */
+  detach(): Promise<void>;
+}
+
+export type ManagerTsukaiRuntimeFactory = () => Promise<ManagerTsukaiRuntime>;
+
+/** Pi built-in tools Mottainai admits for a managed run (the prior Pi SDK default set). */
+export const MANAGER_PI_BUILTIN_TOOLS = ["read", "bash", "edit", "write"] as const;
+
+/**
+ * Idempotent start key of one Manager launch attempt. Each Manager restart or
+ * continuation is an orchestration retry and increments the attempt, so it
+ * always names a distinct AgentRun; the same attempt never creates twice.
+ */
+export function tsukaiStartKey(managerSessionId: ManagerSessionId, attempt: number): string {
+  if (!Number.isSafeInteger(attempt) || attempt < 0) throw new Error("Tsukai start attempt is invalid");
+  return `${managerSessionId}:attempt:${attempt}`;
+}
 
 /** Admitted tool policy. Nothing is defaulted: an empty builtin list admits no built-in tools. */
 export interface TsukaiToolIntent {
@@ -150,15 +188,9 @@ export class TsukaiAgentRunStarter {
       tools: input.tools,
     });
 
-    const reserved = this.options.store.reserveTsukaiRunCorrelation({ startKey, managerSessionId });
-    if (reserved.agentRunId !== undefined) return this.recovered(startKey, managerSessionId, reserved.agentRunId);
-
-    const orphan = this.findCreatedRun(startKey);
-    if (orphan !== undefined) {
-      this.verifyOwnership(orphan, startKey, managerSessionId);
-      this.options.store.bindTsukaiRunCorrelation({ startKey, agentRunId: orphan.agentRunId });
-      return { agentRunId: orphan.agentRunId, snapshot: orphan, created: false };
-    }
+    this.options.store.reserveTsukaiRunCorrelation({ startKey, managerSessionId });
+    const existing = this.recover(startKey, managerSessionId);
+    if (existing !== undefined) return { agentRunId: existing.agentRunId, snapshot: existing, created: false };
 
     const snapshot = await this.options.runs.create({
       harness: "pi",
@@ -171,14 +203,27 @@ export class TsukaiAgentRunStarter {
     return { agentRunId: snapshot.agentRunId, snapshot, created: true };
   }
 
-  private recovered(
-    startKey: string,
-    managerSessionId: ManagerSessionId,
-    agentRunId: string,
-  ): TsukaiAgentRunStartResult {
-    const snapshot = this.options.runs.get(agentRunId);
-    this.verifyOwnership(snapshot, startKey, managerSessionId);
-    return { agentRunId, snapshot, created: false };
+  /**
+   * Reconcile one durable start with Tsukai without ever creating a run: a
+   * bound start is read by its agentRunId, a reserved-but-unbound start is
+   * resolved through Tsukai `list` and bound. Undefined means Tsukai holds no
+   * run for the start (none was ever accepted), not that a run ended.
+   */
+  recover(startKey: string, managerSessionId: ManagerSessionId): RunSnapshot | undefined {
+    const correlation = this.options.store.getTsukaiRunCorrelation(startKey);
+    if (correlation === undefined) return undefined;
+    if (correlation.managerSessionId !== managerSessionId)
+      throw new Error(`tsukai start ${startKey} is correlated with another Manager session`);
+    if (correlation.agentRunId !== undefined) {
+      const snapshot = this.options.runs.get(correlation.agentRunId);
+      this.verifyOwnership(snapshot, startKey, managerSessionId);
+      return snapshot;
+    }
+    const orphan = this.findCreatedRun(startKey);
+    if (orphan === undefined) return undefined;
+    this.verifyOwnership(orphan, startKey, managerSessionId);
+    this.options.store.bindTsukaiRunCorrelation({ startKey, agentRunId: orphan.agentRunId });
+    return orphan;
   }
 
   private findCreatedRun(startKey: string): RunSnapshot | undefined {
