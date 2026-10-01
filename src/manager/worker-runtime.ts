@@ -7,6 +7,11 @@ import type { ManagerRuntimeId, ManagerSessionId, TaskId } from "../workflow/sta
  * This module is deliberately a projection contract. It carries stable
  * Manager/task/runtime identities and bounded semantic state, but no provider
  * transcript, reasoning, or tool-result payloads.
+ *
+ * It is retained only as the published `mottainai/worker-runtime` contract
+ * consumed by the separately packaged pi-mottainai adapter. The Manager does
+ * not consume it: Tsukai is the sole AgentRun lifecycle and observation
+ * authority, so nothing here is Mottainai AgentRun truth.
  */
 
 export const WORKER_RUNTIME_CONTRACT_ID = "mottainai.worker-runtime.v1" as const;

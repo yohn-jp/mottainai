@@ -12,12 +12,7 @@ import type { ManagerAgentKind, WorkflowStateStore } from "../workflow/state/sto
 import type { ManagerExecutionAuthority } from "../workflow/domain/manager-execution.js";
 import { ManagerHttpApi } from "./http.js";
 import { readManagerAssets, readManagerViewer } from "./assets.js";
-import {
-  ManagerSessionService,
-  type ManagerPiWorkerFactory,
-  type ManagerPiWorkerFactoryInput,
-  type ManagerRuntimeConfiguration,
-} from "./service.js";
+import { ManagerSessionService, type ManagerRuntimeConfiguration } from "./service.js";
 import {
   createFileDurableStore,
   createJinushiClient,
@@ -52,45 +47,10 @@ export interface ManagerStartOptions extends ManagerCommandOptions {
   agentCommands?: Partial<Record<ManagerAgentKind, { command: string; baseArgs?: readonly string[] }>>;
   executionAuthority?: ManagerExecutionAuthority;
   runtimeConfig?: ManagerRuntimeConfiguration;
-  piWorkerFactory?: ManagerPiWorkerFactory;
   tsukai?: ManagerTsukaiRuntimeFactory;
 }
 
 let activeManager: DashboardServerHandle | undefined;
-
-interface PiManagerAdapterModule {
-  createManagedPiMottainaiRuntime(input: ManagerPiWorkerFactoryInput): ReturnType<ManagerPiWorkerFactory>;
-}
-
-export type PiManagerAdapterLoader = () => Promise<PiManagerAdapterModule>;
-
-function isPiManagerAdapterModule(value: unknown): value is PiManagerAdapterModule {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "createManagedPiMottainaiRuntime" in value &&
-    typeof value.createManagedPiMottainaiRuntime === "function"
-  );
-}
-
-export function createProductionPiWorkerFactory(
-  loader: PiManagerAdapterLoader = async () => {
-    const packageName = "pi-mottainai";
-    const loaded: unknown = await import(packageName);
-    if (!isPiManagerAdapterModule(loaded)) {
-      throw new Error("pi-mottainai does not export createManagedPiMottainaiRuntime");
-    }
-    return loaded;
-  },
-): ManagerPiWorkerFactory {
-  return async (input) => {
-    const module = await loader();
-    if (typeof module.createManagedPiMottainaiRuntime !== "function") {
-      throw new Error("pi-mottainai does not export createManagedPiMottainaiRuntime");
-    }
-    return module.createManagedPiMottainaiRuntime(input);
-  };
-}
 
 function requiredAbsolutePath(environment: NodeJS.ProcessEnv, name: string): string {
   const value = environment[name];
@@ -198,7 +158,6 @@ export async function startManager(options: ManagerStartOptions): Promise<Dashbo
     nawabari: new NawabariExecutionClient(),
     agentCommands: options.agentCommands,
     executionAuthority: options.executionAuthority,
-    ...(options.piWorkerFactory === undefined ? {} : { piWorkerFactory: options.piWorkerFactory }),
     tsukai: options.tsukai ?? createProductionTsukaiRuntimeFactory(environment),
     runtimeConfig: options.runtimeConfig,
   });

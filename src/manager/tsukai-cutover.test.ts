@@ -357,15 +357,14 @@ test("production Pi assignment creates a Tsukai AgentRun and observes, replays, 
     "running AgentRun",
   );
   assert.match(running.latestStatus ?? "", new RegExp(`Tsukai AgentRun ${agentRunId} is running`, "u"));
-  const worker = service.getWorkerSupervision(session.sessionId);
+  const worker = service.getWorker(session.sessionId);
   assert.equal(worker.agentRun?.provenance, "tsukai");
   assert.equal(worker.agentRun?.agentRunId, agentRunId);
   assert.equal(worker.agentRun?.lifecycle, "running");
   // Legacy self-reported fields are unavailable, never defaulted to idle or zero.
-  assert.equal(worker.usage, null);
-  assert.equal(worker.progress, null);
-  assert.equal(worker.lifecycleState, null);
-  assert.equal(harness.store.getWorkerSupervision(session.sessionId), undefined, "no duplicate worker supervision");
+  // No Manager-owned self-reported lifecycle remains next to the Tsukai evidence.
+  assert.equal("lifecycleState" in worker, false);
+  assert.equal("usage" in worker, false);
   assert.equal(service.getWorkerResult(session.sessionId).ready, false);
 
   pi.complete("cutover done");
@@ -391,7 +390,7 @@ test("production Pi assignment creates a Tsukai AgentRun and observes, replays, 
   const replayTail = service.getWorkerEvents(session.sessionId, { afterSeq: events.items[1]!.seq, limit: 2 });
   assert.equal(replayTail.items[0]?.seq, events.items[2]?.seq);
 
-  const detail = service.getWorkerSupervision(session.sessionId);
+  const detail = service.getWorker(session.sessionId);
   assert.equal(detail.agentRunObservation?.run?.outcome, "completed");
   assert.ok(detail.agentRunObservation?.metrics);
   assert.equal(detail.agentRunObservation?.completeness?.status, "complete");
@@ -459,7 +458,7 @@ test("retry is a new attempt with a distinct AgentRun and never resurrects the t
     harness.store.listTsukaiRunCorrelations(session.sessionId).map((correlation) => correlation.agentRunId),
     [first, second],
   );
-  const worker = service.getWorkerSupervision(session.sessionId);
+  const worker = service.getWorker(session.sessionId);
   assert.equal(worker.agentRun?.agentRunId, second);
   assert.equal(worker.agentRun?.attempt, 1);
   assert.equal(worker.identity.managerSessionId, session.sessionId);
@@ -505,7 +504,7 @@ test("Manager restart reconciles the durable agentRunId with Tsukai before anyth
   assert.equal(harness.creates(), 1, "restart never creates a duplicate AgentRun");
   assert.equal(reconnected.runtimeState, "running");
   assert.equal(currentAgentRunId(harness.store, session.sessionId, 0), agentRunId);
-  const worker = after.getWorkerSupervision(session.sessionId);
+  const worker = after.getWorker(session.sessionId);
   assert.equal(worker.agentRun?.agentRunId, agentRunId);
   assert.equal(worker.agentRun?.recovery?.state, "attached");
 
@@ -560,11 +559,10 @@ test("unconfirmed AgentRun state stays uncertain and is never strengthened or re
   assert.equal(observed.runtimeState, "stale");
   assert.equal(observed.reconciliationState, "unresolved");
   assert.equal(observed.lifecycleState, "running", "Manager lifecycle is not advanced on uncertain evidence");
-  const worker = after.getWorkerSupervision(session.sessionId);
+  const worker = after.getWorker(session.sessionId);
   assert.equal(worker.agentRun?.agentRunId, agentRunId);
   assert.notEqual(worker.agentRun?.lifecycle, "terminal");
   assert.notEqual(worker.agentRun?.lifecycle, "running");
-  assert.equal(worker.usage, null);
   assert.equal(after.getWorkerResult(session.sessionId).ready, false);
 
   await assert.rejects(

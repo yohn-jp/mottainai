@@ -139,7 +139,7 @@ test("Manager HTTP API exposes session state and selected open/stop actions", as
   assert.equal(malformedJson.status, 400);
 });
 
-test("Manager HTTP worker supervision routes are bounded GET-only projections", async (t) => {
+test("Manager HTTP worker routes are bounded GET-only projections", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
   const managerSessionId = "00000000-0000-4000-8000-000000000951" as ManagerSessionId;
@@ -158,32 +158,6 @@ test("Manager HTTP worker supervision routes are bounded GET-only projections", 
     semanticLifecycleState: "active",
     startedAt: 1,
   });
-  const binding = {
-    identity: {
-      managerSessionId,
-      runtimeId: "local" as ManagerRuntimeId,
-      executionSessionId: "execution-worker-951",
-      provider: "provider-neutral",
-    },
-    boundAt: "2026-01-01T00:00:00.000Z",
-  } as const;
-  const status = {
-    lifecycleState: "running",
-    phase: "executing",
-    activity: { kind: "working", label: "bounded status" },
-    progress: { completed: 2, current: "step-3", remaining: 4 },
-    attention: "none",
-    usage: { totalTokens: 120 },
-  } as const;
-  store.recordWorkerSupervision({
-    observation: { binding, status, observedAt: "2026-01-01T00:00:01.000Z" },
-    diagnosticEvent: {
-      kind: "status",
-      binding,
-      status,
-      observedAt: "2026-01-01T00:00:02.000Z",
-    },
-  });
   const service = new ManagerSessionService({ workspaceRoot: root, store, runtime: new HttpFakeRuntime() });
   const handle = await startDashboardServer({
     port: 0,
@@ -198,20 +172,17 @@ test("Manager HTTP worker supervision routes are bounded GET-only projections", 
   const fleetBody = await fleet.json();
   assert.equal(fleetBody.workers.length, 1);
   assert.equal(fleetBody.workers[0].identity.managerSessionId, managerSessionId);
-  assert.equal(fleetBody.workers[0].phase, "executing");
-  assert.equal(fleetBody.workers[0].usage.totalTokens, 120);
-  assert.equal("latestObservation" in fleetBody.workers[0], false);
+  assert.equal(fleetBody.workers[0].observationState, "missing");
+  assert.equal(fleetBody.workers[0].agentRun, null);
 
   const detail = await fetch(`${handle.url}api/v1/manager/workers/${managerSessionId}`);
   assert.equal(detail.status, 200);
   const detailBody = await detail.json();
-  assert.equal(detailBody.worker.diagnosticEvents.length, 1);
-  assert.equal("detail" in detailBody.worker.diagnosticEvents[0], false);
+  assert.equal(detailBody.worker.agentRunObservation, null);
 
   const post = await fetch(`${handle.url}api/v1/manager/workers/${managerSessionId}`, { method: "POST" });
   assert.equal(post.status, 405);
   assert.equal(post.headers.get("allow"), "GET");
-  assert.equal(store.listWorkerControlAudit(managerSessionId).length, 0);
 
   // AgentRun replay/result routes are Tsukai-only relays; a non-Tsukai worker has none.
   for (const route of ["events", "result"]) {
