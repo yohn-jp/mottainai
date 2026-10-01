@@ -180,6 +180,17 @@ test("oversized identity.upstreams is bounded by the hard response budget", () =
   assertRequired(result);
 });
 
+test("the minimal hard-budget envelope keeps a compact read identity that still fits", () => {
+  const identity = { id: "rid_1", content_id: "abc", changed: true };
+  const result = applyResponseBudget(
+    projected({ identity, facts: Array.from({ length: 40 }, (_, index) => `fact-${index}-${"f".repeat(80)}`) }),
+    MIN_RESPONSE_BUDGET,
+  );
+  assert.ok(projectedBytes(result) <= MIN_RESPONSE_BUDGET.hardBytes);
+  assert.deepEqual(serializeProjectedResult(result).structuredContent.identity, identity);
+  assertRequired(result);
+});
+
 test("normal-size identity is preserved unless budget forces compaction", () => {
   const identity = {
     version: 1,
