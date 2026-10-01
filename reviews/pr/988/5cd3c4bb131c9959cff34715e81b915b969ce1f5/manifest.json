@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "913ded2be17c0a4e94f5a7d8bb943b92c321cfcf",
+    "draft": false,
+    "headRef": "feat/985-tsukai-integration",
+    "headSha": "5cd3c4bb131c9959cff34715e81b915b969ce1f5",
+    "number": 988,
+    "title": "feat(manager): establish Tsukai AgentRun integration foundation"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "5cd3c4bb131c9959cff34715e81b915b969ce1f5",
+    "immutable": true,
+    "shortId": "5cd3c4bb131c"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-10-01T09:50:46.695Z"
+  }
+}

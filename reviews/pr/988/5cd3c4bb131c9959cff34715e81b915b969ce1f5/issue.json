@@ -1,0 +1,45 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "package.json/pnpm-lock consume exact tsukai@0.2.2."
+    },
+    {
+      "checked": false,
+      "text": "One bounded integration seam creates AgentRuns only through Tsukai public API."
+    },
+    {
+      "checked": false,
+      "text": "Provider/model/tool/guard/custom-tool intent maps to the M5.5 execution profile."
+    },
+    {
+      "checked": false,
+      "text": "Existing Nawabari workspace/worktree binding is passed without widening authority."
+    },
+    {
+      "checked": false,
+      "text": "Tsukai agentRunId is durably correlated with Manager/orchestration identity."
+    },
+    {
+      "checked": false,
+      "text": "Repeating the same idempotent start does not create a second AgentRun."
+    },
+    {
+      "checked": false,
+      "text": "Existing Pi runtime remains only as the pre-cutover path; no new duplicate lifecycle authority is added."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "implementation"
+    ],
+    "number": 985,
+    "state": "open",
+    "title": "impl: establish Tsukai AgentRun integration foundation",
+    "url": "https://github.com/yohn-jp/mottainai/issues/985"
+  },
+  "linked": {
+    "number": 985
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

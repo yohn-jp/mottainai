@@ -1,0 +1,208 @@
+{
+  "baseSha": "913ded2be17c0a4e94f5a7d8bb943b92c321cfcf",
+  "files": [
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 31,
+          "oldLines": 1,
+          "oldStart": 31
+        }
+      ],
+      "path": "nix/mottainai.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 80,
+          "oldLines": 0,
+          "oldStart": 79
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 10,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 32,
+          "oldLines": 0,
+          "oldStart": 31
+        },
+        {
+          "newLines": 5,
+          "newStart": 1640,
+          "oldLines": 0,
+          "oldStart": 1636
+        },
+        {
+          "newLines": 2,
+          "newStart": 3360,
+          "oldLines": 0,
+          "oldStart": 3351
+        }
+      ],
+      "path": "pnpm-lock.yaml",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 31,
+          "oldLines": 0,
+          "oldStart": 30
+        }
+      ],
+      "path": "pnpm-workspace.yaml",
+      "status": "modified"
+    },
+    {
+      "additions": 3,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 23,
+          "oldLines": 1,
+          "oldStart": 23
+        }
+      ],
+      "path": "scripts/validate-inari-templates.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 4,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 495,
+          "oldLines": 0,
+          "oldStart": 494
+        },
+        {
+          "newLines": 1,
+          "newStart": 499,
+          "oldLines": 0,
+          "oldStart": 495
+        }
+      ],
+      "path": "src/context-runtime/budget.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 11,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 11,
+          "newStart": 183,
+          "oldLines": 0,
+          "oldStart": 182
+        }
+      ],
+      "path": "src/context-runtime/context-runtime.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 339,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 339,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/manager/tsukai-integration.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 202,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 202,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/manager/tsukai-integration.ts",
+      "status": "added"
+    },
+    {
+      "additions": 78,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 52,
+          "oldLines": 0,
+          "oldStart": 51
+        },
+        {
+          "newLines": 9,
+          "newStart": 194,
+          "oldLines": 0,
+          "oldStart": 190
+        },
+        {
+          "newLines": 16,
+          "newStart": 206,
+          "oldLines": 0,
+          "oldStart": 193
+        },
+        {
+          "newLines": 50,
+          "newStart": 2806,
+          "oldLines": 0,
+          "oldStart": 2777
+        }
+      ],
+      "path": "src/workflow/state/sqlite-store.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 32,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 26,
+          "newStart": 499,
+          "oldLines": 0,
+          "oldStart": 498
+        },
+        {
+          "newLines": 6,
+          "newStart": 1236,
+          "oldLines": 0,
+          "oldStart": 1209
+        }
+      ],
+      "path": "src/workflow/state/store.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "5cd3c4bb131c9959cff34715e81b915b969ce1f5",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 682,
+    "deletions": 2,
+    "filesChanged": 11
+  }
+}
