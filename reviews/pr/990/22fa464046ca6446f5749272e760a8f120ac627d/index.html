@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #990 @ 22fa464046ca</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #990: refactor(manager): remove duplicate AgentRun authority after the Tsukai cutover</h1>
+<p>Base <code>refactor/986-tsukai-manager-cutover</code> @ <code>64044fbde12c31d685d05b863b422dfa9e6876b8</code> &rarr;
+Head <code>refactor/987-tsukai-authority-removal</code> @ <code>22fa464046ca6446f5749272e760a8f120ac627d</code></p>
+<p>Revision <code>22fa464046ca</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/987">#987</a> impl: remove duplicate AgentRun authority and certify Tsukai migration (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] No canonical in-memory Mottainai worker/AgentRun registry remains.</li>
+<li>[ ] No duplicate persisted worker-supervision state remains as AgentRun truth.</li>
+<li>[ ] Pi AgentSession lifecycle/event mapping no longer acts as Mottainai AgentRun authority.</li>
+<li>[ ] WorkerRuntime lifecycle/control/observation contracts are removed or narrowed to non-authoritative compatibility projections with a demonstrated consumer.</li>
+<li>[ ] Mottainai retains only orchestration state, policy, correlation, and required Tsukai profile/context construction.</li>
+<li>[ ] Tsukai agentRunId remains the canonical execution reference.</li>
+<li>[ ] Integration tests demonstrate assignment, observation, result, cancellation, retry correlation, and restart non-duplication through Tsukai.</li>
+<li>[ ] The boundary Mottainai -&gt; Tsukai -&gt; Jinushi -&gt; coding agent is proven where the environment permits.</li>
+<li>[ ] Provider-backed or supervisor-dependent proof that cannot execute is recorded as ENVIRONMENT_BLOCKED, never PASS.</li>
+<li>[ ] Full repository verification and submitted-head CI are green.</li>
+<li>[ ] PR evidence records exact Tsukai version, removed/retained ownership, API/profile mapping, Nawabari/Jinushi boundaries, retry/idempotency evidence, tests, certification, and CI/governance state.</li></ul>
+
+
+
+<h2>Changed files (16, +147/-1606)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>packages/pi-mottainai/src/index.ts</td><td>modified</td><td>+0</td><td>-1</td></tr>
+<tr><td>packages/pi-mottainai/src/manager-factory.test.ts</td><td>removed</td><td>+0</td><td>-40</td></tr>
+<tr><td>packages/pi-mottainai/src/manager-factory.ts</td><td>removed</td><td>+0</td><td>-91</td></tr>
+<tr><td>src/manager/command.integration.test.ts</td><td>modified</td><td>+1</td><td>-16</td></tr>
+<tr><td>src/manager/command.ts</td><td>modified</td><td>+1</td><td>-42</td></tr>
+<tr><td>src/manager/http.test.ts</td><td>modified</td><td>+4</td><td>-33</td></tr>
+<tr><td>src/manager/http.ts</td><td>modified</td><td>+2</td><td>-2</td></tr>
+<tr><td>src/manager/pi-runtime.integration.test.ts</td><td>removed</td><td>+0</td><td>-270</td></tr>
+<tr><td>src/manager/service.test.ts</td><td>modified</td><td>+20</td><td>-52</td></tr>
+<tr><td>src/manager/service.ts</td><td>modified</td><td>+44</td><td>-458</td></tr>
+<tr><td>src/manager/tsukai-cutover.test.ts</td><td>modified</td><td>+8</td><td>-10</td></tr>
+<tr><td>src/manager/worker-runtime.ts</td><td>modified</td><td>+5</td><td>-0</td></tr>
+<tr><td>src/workflow/state/sqlite-store.ts</td><td>modified</td><td>+10</td><td>-360</td></tr>
+<tr><td>src/workflow/state/store.ts</td><td>modified</td><td>+0</td><td>-80</td></tr>
+<tr><td>src/workflow/state/tsukai-correlation-schema.test.ts</td><td>added</td><td>+52</td><td>-0</td></tr>
+<tr><td>src/workflow/state/worker-supervision.test.ts</td><td>removed</td><td>+0</td><td>-151</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

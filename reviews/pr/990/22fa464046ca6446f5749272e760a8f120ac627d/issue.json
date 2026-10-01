@@ -1,0 +1,61 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "No canonical in-memory Mottainai worker/AgentRun registry remains."
+    },
+    {
+      "checked": false,
+      "text": "No duplicate persisted worker-supervision state remains as AgentRun truth."
+    },
+    {
+      "checked": false,
+      "text": "Pi AgentSession lifecycle/event mapping no longer acts as Mottainai AgentRun authority."
+    },
+    {
+      "checked": false,
+      "text": "WorkerRuntime lifecycle/control/observation contracts are removed or narrowed to non-authoritative compatibility projections with a demonstrated consumer."
+    },
+    {
+      "checked": false,
+      "text": "Mottainai retains only orchestration state, policy, correlation, and required Tsukai profile/context construction."
+    },
+    {
+      "checked": false,
+      "text": "Tsukai agentRunId remains the canonical execution reference."
+    },
+    {
+      "checked": false,
+      "text": "Integration tests demonstrate assignment, observation, result, cancellation, retry correlation, and restart non-duplication through Tsukai."
+    },
+    {
+      "checked": false,
+      "text": "The boundary Mottainai -> Tsukai -> Jinushi -> coding agent is proven where the environment permits."
+    },
+    {
+      "checked": false,
+      "text": "Provider-backed or supervisor-dependent proof that cannot execute is recorded as ENVIRONMENT_BLOCKED, never PASS."
+    },
+    {
+      "checked": false,
+      "text": "Full repository verification and submitted-head CI are green."
+    },
+    {
+      "checked": false,
+      "text": "PR evidence records exact Tsukai version, removed/retained ownership, API/profile mapping, Nawabari/Jinushi boundaries, retry/idempotency evidence, tests, certification, and CI/governance state."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "implementation"
+    ],
+    "number": 987,
+    "state": "open",
+    "title": "impl: remove duplicate AgentRun authority and certify Tsukai migration",
+    "url": "https://github.com/yohn-jp/mottainai/issues/987"
+  },
+  "linked": {
+    "number": 987
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "refactor/986-tsukai-manager-cutover",
+    "baseSha": "64044fbde12c31d685d05b863b422dfa9e6876b8",
+    "draft": false,
+    "headRef": "refactor/987-tsukai-authority-removal",
+    "headSha": "22fa464046ca6446f5749272e760a8f120ac627d",
+    "number": 990,
+    "title": "refactor(manager): remove duplicate AgentRun authority after the Tsukai cutover"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "22fa464046ca6446f5749272e760a8f120ac627d",
+    "immutable": true,
+    "shortId": "22fa464046ca"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-10-01T10:56:10.618Z"
+  }
+}

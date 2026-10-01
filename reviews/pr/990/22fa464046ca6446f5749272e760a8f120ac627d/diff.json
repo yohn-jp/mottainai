@@ -1,0 +1,602 @@
+{
+  "baseSha": "64044fbde12c31d685d05b863b422dfa9e6876b8",
+  "files": [
+    {
+      "additions": 0,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 3,
+          "oldLines": 1,
+          "oldStart": 4
+        }
+      ],
+      "path": "packages/pi-mottainai/src/index.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 0,
+      "deletions": 40,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 40,
+          "oldStart": 1
+        }
+      ],
+      "path": "packages/pi-mottainai/src/manager-factory.test.ts",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 91,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 91,
+          "oldStart": 1
+        }
+      ],
+      "path": "packages/pi-mottainai/src/manager-factory.ts",
+      "status": "removed"
+    },
+    {
+      "additions": 1,
+      "deletions": 16,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 8,
+          "oldLines": 1,
+          "oldStart": 8
+        },
+        {
+          "newLines": 0,
+          "newStart": 11,
+          "oldLines": 15,
+          "oldStart": 12
+        }
+      ],
+      "path": "src/manager/command.integration.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 42,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 15,
+          "oldLines": 6,
+          "oldStart": 15
+        },
+        {
+          "newLines": 0,
+          "newStart": 49,
+          "oldLines": 1,
+          "oldStart": 55
+        },
+        {
+          "newLines": 0,
+          "newStart": 54,
+          "oldLines": 34,
+          "oldStart": 61
+        },
+        {
+          "newLines": 0,
+          "newStart": 160,
+          "oldLines": 1,
+          "oldStart": 201
+        }
+      ],
+      "path": "src/manager/command.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 4,
+      "deletions": 33,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 142,
+          "oldLines": 1,
+          "oldStart": 142
+        },
+        {
+          "newLines": 0,
+          "newStart": 160,
+          "oldLines": 26,
+          "oldStart": 161
+        },
+        {
+          "newLines": 2,
+          "newStart": 175,
+          "oldLines": 3,
+          "oldStart": 201
+        },
+        {
+          "newLines": 1,
+          "newStart": 181,
+          "oldLines": 2,
+          "oldStart": 208
+        },
+        {
+          "newLines": 0,
+          "newStart": 185,
+          "oldLines": 1,
+          "oldStart": 214
+        }
+      ],
+      "path": "src/manager/http.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 402,
+          "oldLines": 1,
+          "oldStart": 402
+        },
+        {
+          "newLines": 1,
+          "newStart": 407,
+          "oldLines": 1,
+          "oldStart": 407
+        }
+      ],
+      "path": "src/manager/http.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 0,
+      "deletions": 270,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 270,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/manager/pi-runtime.integration.test.ts",
+      "status": "removed"
+    },
+    {
+      "additions": 20,
+      "deletions": 52,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 1843,
+          "oldLines": 1,
+          "oldStart": 1843
+        },
+        {
+          "newLines": 19,
+          "newStart": 1847,
+          "oldLines": 51,
+          "oldStart": 1847
+        }
+      ],
+      "path": "src/manager/service.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 44,
+      "deletions": 458,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 41,
+          "oldLines": 3,
+          "oldStart": 42
+        },
+        {
+          "newLines": 0,
+          "newStart": 75,
+          "oldLines": 14,
+          "oldStart": 79
+        },
+        {
+          "newLines": 0,
+          "newStart": 387,
+          "oldLines": 28,
+          "oldStart": 405
+        },
+        {
+          "newLines": 3,
+          "newStart": 495,
+          "oldLines": 4,
+          "oldStart": 540
+        },
+        {
+          "newLines": 0,
+          "newStart": 512,
+          "oldLines": 4,
+          "oldStart": 559
+        },
+        {
+          "newLines": 0,
+          "newStart": 513,
+          "oldLines": 4,
+          "oldStart": 564
+        },
+        {
+          "newLines": 0,
+          "newStart": 557,
+          "oldLines": 1,
+          "oldStart": 612
+        },
+        {
+          "newLines": 0,
+          "newStart": 614,
+          "oldLines": 51,
+          "oldStart": 670
+        },
+        {
+          "newLines": 4,
+          "newStart": 660,
+          "oldLines": 0,
+          "oldStart": 765
+        },
+        {
+          "newLines": 3,
+          "newStart": 665,
+          "oldLines": 3,
+          "oldStart": 767
+        },
+        {
+          "newLines": 5,
+          "newStart": 669,
+          "oldLines": 3,
+          "oldStart": 771
+        },
+        {
+          "newLines": 9,
+          "newStart": 675,
+          "oldLines": 1,
+          "oldStart": 775
+        },
+        {
+          "newLines": 2,
+          "newStart": 686,
+          "oldLines": 0,
+          "oldStart": 777
+        },
+        {
+          "newLines": 1,
+          "newStart": 689,
+          "oldLines": 1,
+          "oldStart": 779
+        },
+        {
+          "newLines": 0,
+          "newStart": 1771,
+          "oldLines": 4,
+          "oldStart": 1862
+        },
+        {
+          "newLines": 1,
+          "newStart": 1796,
+          "oldLines": 3,
+          "oldStart": 1890
+        },
+        {
+          "newLines": 0,
+          "newStart": 1811,
+          "oldLines": 2,
+          "oldStart": 1908
+        },
+        {
+          "newLines": 3,
+          "newStart": 1892,
+          "oldLines": 4,
+          "oldStart": 1990
+        },
+        {
+          "newLines": 1,
+          "newStart": 1896,
+          "oldLines": 1,
+          "oldStart": 1995
+        },
+        {
+          "newLines": 0,
+          "newStart": 1901,
+          "oldLines": 1,
+          "oldStart": 2001
+        },
+        {
+          "newLines": 3,
+          "newStart": 1903,
+          "oldLines": 12,
+          "oldStart": 2003
+        },
+        {
+          "newLines": 2,
+          "newStart": 1916,
+          "oldLines": 3,
+          "oldStart": 2025
+        },
+        {
+          "newLines": 1,
+          "newStart": 1919,
+          "oldLines": 1,
+          "oldStart": 2029
+        },
+        {
+          "newLines": 3,
+          "newStart": 1921,
+          "oldLines": 13,
+          "oldStart": 2031
+        },
+        {
+          "newLines": 0,
+          "newStart": 2288,
+          "oldLines": 44,
+          "oldStart": 2409
+        },
+        {
+          "newLines": 0,
+          "newStart": 2313,
+          "oldLines": 128,
+          "oldStart": 2478
+        },
+        {
+          "newLines": 3,
+          "newStart": 2320,
+          "oldLines": 2,
+          "oldStart": 2612
+        },
+        {
+          "newLines": 0,
+          "newStart": 3086,
+          "oldLines": 25,
+          "oldStart": 3378
+        },
+        {
+          "newLines": 0,
+          "newStart": 3175,
+          "oldLines": 29,
+          "oldStart": 3492
+        },
+        {
+          "newLines": 0,
+          "newStart": 3334,
+          "oldLines": 35,
+          "oldStart": 3680
+        },
+        {
+          "newLines": 0,
+          "newStart": 3474,
+          "oldLines": 34,
+          "oldStart": 3855
+        }
+      ],
+      "path": "src/manager/service.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 8,
+      "deletions": 10,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 360,
+          "oldLines": 1,
+          "oldStart": 360
+        },
+        {
+          "newLines": 3,
+          "newStart": 365,
+          "oldLines": 4,
+          "oldStart": 365
+        },
+        {
+          "newLines": 1,
+          "newStart": 393,
+          "oldLines": 1,
+          "oldStart": 394
+        },
+        {
+          "newLines": 1,
+          "newStart": 461,
+          "oldLines": 1,
+          "oldStart": 462
+        },
+        {
+          "newLines": 1,
+          "newStart": 507,
+          "oldLines": 1,
+          "oldStart": 508
+        },
+        {
+          "newLines": 1,
+          "newStart": 562,
+          "oldLines": 1,
+          "oldStart": 563
+        },
+        {
+          "newLines": 0,
+          "newStart": 565,
+          "oldLines": 1,
+          "oldStart": 567
+        }
+      ],
+      "path": "src/manager/tsukai-cutover.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 5,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 5,
+          "newStart": 10,
+          "oldLines": 0,
+          "oldStart": 9
+        }
+      ],
+      "path": "src/manager/worker-runtime.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 10,
+      "deletions": 360,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 13,
+          "oldLines": 2,
+          "oldStart": 14
+        },
+        {
+          "newLines": 0,
+          "newStart": 14,
+          "oldLines": 14,
+          "oldStart": 17
+        },
+        {
+          "newLines": 0,
+          "newStart": 108,
+          "oldLines": 7,
+          "oldStart": 125
+        },
+        {
+          "newLines": 4,
+          "newStart": 143,
+          "oldLines": 3,
+          "oldStart": 166
+        },
+        {
+          "newLines": 1,
+          "newStart": 148,
+          "oldLines": 1,
+          "oldStart": 170
+        },
+        {
+          "newLines": 0,
+          "newStart": 149,
+          "oldLines": 22,
+          "oldStart": 172
+        },
+        {
+          "newLines": 1,
+          "newStart": 178,
+          "oldLines": 12,
+          "oldStart": 222
+        },
+        {
+          "newLines": 1,
+          "newStart": 180,
+          "oldLines": 1,
+          "oldStart": 235
+        },
+        {
+          "newLines": 0,
+          "newStart": 183,
+          "oldLines": 137,
+          "oldStart": 239
+        },
+        {
+          "newLines": 1,
+          "newStart": 988,
+          "oldLines": 1,
+          "oldStart": 1180
+        },
+        {
+          "newLines": 0,
+          "newStart": 2473,
+          "oldLines": 140,
+          "oldStart": 2666
+        },
+        {
+          "newLines": 1,
+          "newStart": 2482,
+          "oldLines": 1,
+          "oldStart": 2814
+        },
+        {
+          "newLines": 1,
+          "newStart": 2503,
+          "oldLines": 1,
+          "oldStart": 2835
+        },
+        {
+          "newLines": 0,
+          "newStart": 2523,
+          "oldLines": 18,
+          "oldStart": 2856
+        }
+      ],
+      "path": "src/workflow/state/sqlite-store.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 0,
+      "deletions": 80,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 3,
+          "oldLines": 9,
+          "oldStart": 4
+        },
+        {
+          "newLines": 0,
+          "newStart": 428,
+          "oldLines": 61,
+          "oldStart": 438
+        },
+        {
+          "newLines": 0,
+          "newStart": 1155,
+          "oldLines": 10,
+          "oldStart": 1226
+        }
+      ],
+      "path": "src/workflow/state/store.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 52,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 52,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/workflow/state/tsukai-correlation-schema.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 0,
+      "deletions": 151,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 151,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/workflow/state/worker-supervision.test.ts",
+      "status": "removed"
+    }
+  ],
+  "headSha": "22fa464046ca6446f5749272e760a8f120ac627d",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 147,
+    "deletions": 1606,
+    "filesChanged": 16
+  }
+}
