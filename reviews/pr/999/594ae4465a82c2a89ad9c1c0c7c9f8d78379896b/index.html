@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #999 @ 594ae4465a82</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #999: Document OCI exec cancellation recovery boundary</h1>
+<p>Base <code>main</code> @ <code>152da3c3a61900fa65db8b0abce44fdcb170b73b</code> &rarr;
+Head <code>docs/997-oci-cancel-recovery</code> @ <code>594ae4465a82c2a89ad9c1c0c7c9f8d78379896b</code></p>
+<p>Revision <code>594ae4465a82</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/997">#997</a> docs: research OCI Jinushi cancellation and reaping recovery (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Reproduce immediate and bounded delayed cancellation while preserving before/after process-state and identity samples.</li>
+<li>[ ] Distinguish live/zombie/reuse/delay and explain the actual cleanup-complete authority boundary from source/API evidence.</li>
+<li>[ ] Identify the minimum lawful repair target or exact public-API blocker without expanding lifecycle authority.</li>
+<li>[ ] Verify streams/exit, stop/crash observation and cleanup; validate syntax/scope, publish this bounded research PR without merging.</li></ul>
+
+
+
+<h2>Changed files (2, +490/-0)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>OCI_RUNTIME_RECOVERY_B.md</td><td>added</td><td>+56</td><td>-0</td></tr>
+<tr><td>scripts/poc/oci-recovery-b.sh</td><td>added</td><td>+434</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

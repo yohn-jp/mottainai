@@ -1,0 +1,31 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Reproduce immediate and bounded delayed cancellation while preserving before/after process-state and identity samples."
+    },
+    {
+      "checked": false,
+      "text": "Distinguish live/zombie/reuse/delay and explain the actual cleanup-complete authority boundary from source/API evidence."
+    },
+    {
+      "checked": false,
+      "text": "Identify the minimum lawful repair target or exact public-API blocker without expanding lifecycle authority."
+    },
+    {
+      "checked": false,
+      "text": "Verify streams/exit, stop/crash observation and cleanup; validate syntax/scope, publish this bounded research PR without merging."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 997,
+    "state": "open",
+    "title": "docs: research OCI Jinushi cancellation and reaping recovery",
+    "url": "https://github.com/yohn-jp/mottainai/issues/997"
+  },
+  "linked": {
+    "number": 997
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "152da3c3a61900fa65db8b0abce44fdcb170b73b",
+    "draft": false,
+    "headRef": "docs/997-oci-cancel-recovery",
+    "headSha": "594ae4465a82c2a89ad9c1c0c7c9f8d78379896b",
+    "number": 999,
+    "title": "Document OCI exec cancellation recovery boundary"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "594ae4465a82c2a89ad9c1c0c7c9f8d78379896b",
+    "immutable": true,
+    "shortId": "594ae4465a82"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-10-10T02:52:39.667Z"
+  }
+}

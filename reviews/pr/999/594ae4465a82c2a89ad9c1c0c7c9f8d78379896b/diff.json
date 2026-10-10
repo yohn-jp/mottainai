@@ -1,0 +1,40 @@
+{
+  "baseSha": "152da3c3a61900fa65db8b0abce44fdcb170b73b",
+  "files": [
+    {
+      "additions": 56,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 56,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "OCI_RUNTIME_RECOVERY_B.md",
+      "status": "added"
+    },
+    {
+      "additions": 434,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 434,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/poc/oci-recovery-b.sh",
+      "status": "added"
+    }
+  ],
+  "headSha": "594ae4465a82c2a89ad9c1c0c7c9f8d78379896b",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 490,
+    "deletions": 0,
+    "filesChanged": 2
+  }
+}
