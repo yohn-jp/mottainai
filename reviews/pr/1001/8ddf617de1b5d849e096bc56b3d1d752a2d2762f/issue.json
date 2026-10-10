@@ -1,0 +1,31 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Reconcile both fixed Recovery results against actual leaf HEAD/diffs and raw evidence, without accepting reports as certification."
+    },
+    {
+      "checked": false,
+      "text": "Perform independent real validation where authorized; mark dependent unavailable/security-blocked checks explicitly."
+    },
+    {
+      "checked": false,
+      "text": "Record all requested version, scope, command, cleanup, CI, ownership and adoption facts truthfully."
+    },
+    {
+      "checked": false,
+      "text": "Restore coordinator-owned temporary policy by exact identity, publish bounded final report and stop at the user-defined boundary."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 998,
+    "state": "open",
+    "title": "docs: research Wave 1 OCI recovery adoption decision",
+    "url": "https://github.com/yohn-jp/mottainai/issues/998"
+  },
+  "linked": {
+    "number": 998
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

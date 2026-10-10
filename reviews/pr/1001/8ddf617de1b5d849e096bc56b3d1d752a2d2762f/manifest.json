@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "152da3c3a61900fa65db8b0abce44fdcb170b73b",
+    "draft": false,
+    "headRef": "docs/998-oci-recovery-decision",
+    "headSha": "8ddf617de1b5d849e096bc56b3d1d752a2d2762f",
+    "number": 1001,
+    "title": "docs(oci): record blocked recovery and Podman hold decision"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "8ddf617de1b5d849e096bc56b3d1d752a2d2762f",
+    "immutable": true,
+    "shortId": "8ddf617de1b5"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-10-10T03:08:16.281Z"
+  }
+}
