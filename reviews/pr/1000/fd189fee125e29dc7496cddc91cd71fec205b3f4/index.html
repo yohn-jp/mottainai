@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #1000 @ fd189fee125e</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #1000: docs: record rootless OCI recovery evidence</h1>
+<p>Base <code>main</code> @ <code>152da3c3a61900fa65db8b0abce44fdcb170b73b</code> &rarr;
+Head <code>docs/996-oci-sandbox-recovery</code> @ <code>fd189fee125e29dc7496cddc91cd71fec205b3f4</code></p>
+<p>Revision <code>fd189fee125e</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/996">#996</a> docs: research rootless OCI Nawabari strict sandbox recovery (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Reproduce the strict failure on the accepted host and identify the narrowest supported cause or exact remaining ambiguity.</li>
+<li>[ ] Record all required effective settings and Landlock/cgroup evidence; mark conditional unexecuted checks BLOCKED.</li>
+<li>[ ] Preserve all mandatory security boundaries, or stop for the precise required permission/security decision.</li>
+<li>[ ] Validate script syntax, actual probe behavior, scope and cleanup; create a PR linked to this Issue without merging.</li></ul>
+
+
+
+<h2>Changed files (2, +321/-0)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>OCI_RUNTIME_RECOVERY_A.md</td><td>added</td><td>+43</td><td>-0</td></tr>
+<tr><td>scripts/poc/oci-recovery-a.sh</td><td>added</td><td>+278</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

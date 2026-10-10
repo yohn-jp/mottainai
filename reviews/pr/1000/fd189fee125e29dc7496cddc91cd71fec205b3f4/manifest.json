@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "152da3c3a61900fa65db8b0abce44fdcb170b73b",
+    "draft": false,
+    "headRef": "docs/996-oci-sandbox-recovery",
+    "headSha": "fd189fee125e29dc7496cddc91cd71fec205b3f4",
+    "number": 1000,
+    "title": "docs: record rootless OCI recovery evidence"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "fd189fee125e29dc7496cddc91cd71fec205b3f4",
+    "immutable": true,
+    "shortId": "fd189fee125e"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-10-10T03:06:20.181Z"
+  }
+}
