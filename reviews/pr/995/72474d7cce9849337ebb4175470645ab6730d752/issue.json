@@ -1,0 +1,35 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Preserve the original FAIL/BLOCKED/PASS observations and reproduction scripts without weakening assertions."
+    },
+    {
+      "checked": false,
+      "text": "Record base/head SHA, changed files, focused validation and the preservation PR URL."
+    },
+    {
+      "checked": false,
+      "text": "Verify no private keys/tokens, unwanted host identifiers, unbounded deletion or production Runtime changes are published."
+    },
+    {
+      "checked": false,
+      "text": "Keep the change within the three artifacts and 1,000 added lines."
+    },
+    {
+      "checked": false,
+      "text": "Open the PR for review without merging; Recovery A/B explicitly reference its pinned commit rather than assume it merged."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 994,
+    "state": "open",
+    "title": "chore: preserve Wave 1 OCI compatibility FAIL evidence",
+    "url": "https://github.com/yohn-jp/mottainai/issues/994"
+  },
+  "linked": {
+    "number": 994
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
