@@ -1,0 +1,53 @@
+{
+  "baseSha": "152da3c3a61900fa65db8b0abce44fdcb170b73b",
+  "headSha": "f8bd3692d6e1a5bdc1237e7934a4088334ac3d24",
+  "preview": {
+    "excluded_count": 1,
+    "excluded_files": [
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 41,
+        "path": "OCI_RUNTIME_RECOVERY_A.md",
+        "status": "added"
+      }
+    ],
+    "from": "152da3c3a61900fa65db8b0abce44fdcb170b73b",
+    "merge_base": "152da3c3a61900fa65db8b0abce44fdcb170b73b",
+    "mode": "range",
+    "reviewable_count": 1,
+    "reviewable_files": [
+      {
+        "deletions": 0,
+        "insertions": 278,
+        "path": "scripts/poc/oci-recovery-a.sh",
+        "status": "added"
+      }
+    ],
+    "schema_version": "1",
+    "to": "f8bd3692d6e1a5bdc1237e7934a4088334ac3d24",
+    "total_deletions": 0,
+    "total_files": 2,
+    "total_insertions": 319
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.4"
+  },
+  "rule": {
+    "groups": [
+      {
+        "files": [
+          "scripts/poc/oci-recovery-a.sh"
+        ],
+        "group_id": 1,
+        "pattern": "default",
+        "rule": "#### Correctness\nIs the logic correct? Are there missing boundary conditions?\nAre exceptions handled properly?\nIs it thread-safe in concurrent scenarios?\n\n#### Security\nAre there security vulnerabilities such as SQL injection or XSS?\nIs sensitive information handled correctly?\nIs permission validation complete?\n\n#### Performance\nAre there obvious performance issues (e.g., N+1 queries, unnecessary loops)?\nAre resources properly released?\n\n#### Maintainability\nIs the code clear and easy to understand?\nDo names accurately express intent?\nDoes it follow the project’s existing code style and architecture patterns?\n\n#### Test Coverage\nDo critical logic paths have corresponding test cases?\nDo test cases cover boundary conditions?",
+        "source": "system"
+      }
+    ],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}
