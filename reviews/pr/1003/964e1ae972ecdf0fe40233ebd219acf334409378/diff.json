@@ -1,0 +1,102 @@
+{
+  "baseSha": "152da3c3a61900fa65db8b0abce44fdcb170b73b",
+  "files": [
+    {
+      "additions": 4,
+      "deletions": 4,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 113,
+          "oldLines": 1,
+          "oldStart": 113
+        },
+        {
+          "newLines": 1,
+          "newStart": 1050,
+          "oldLines": 1,
+          "oldStart": 1050
+        },
+        {
+          "newLines": 1,
+          "newStart": 1131,
+          "oldLines": 1,
+          "oldStart": 1131
+        },
+        {
+          "newLines": 1,
+          "newStart": 1234,
+          "oldLines": 1,
+          "oldStart": 1234
+        }
+      ],
+      "path": ".github/workflows/ci.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 4,
+      "deletions": 4,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 337,
+          "oldLines": 1,
+          "oldStart": 337
+        },
+        {
+          "newLines": 1,
+          "newStart": 473,
+          "oldLines": 1,
+          "oldStart": 473
+        },
+        {
+          "newLines": 1,
+          "newStart": 866,
+          "oldLines": 1,
+          "oldStart": 866
+        },
+        {
+          "newLines": 1,
+          "newStart": 1298,
+          "oldLines": 1,
+          "oldStart": 1298
+        }
+      ],
+      "path": ".github/workflows/publish.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 3,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 233,
+          "oldLines": 1,
+          "oldStart": 233
+        },
+        {
+          "newLines": 1,
+          "newStart": 257,
+          "oldLines": 1,
+          "oldStart": 257
+        },
+        {
+          "newLines": 1,
+          "newStart": 432,
+          "oldLines": 1,
+          "oldStart": 432
+        }
+      ],
+      "path": ".github/workflows/review-pages.yml",
+      "status": "modified"
+    }
+  ],
+  "headSha": "964e1ae972ecdf0fe40233ebd219acf334409378",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 11,
+    "deletions": 11,
+    "filesChanged": 3
+  }
+}
