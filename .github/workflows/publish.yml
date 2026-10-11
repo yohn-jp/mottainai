@@ -82,7 +82,7 @@ jobs:
       # release metadata; installing the full dependency graph here would
       # duplicate the release build's shared setup.
       - name: Setup Node.js for release metadata detection
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           package-manager-cache: false
@@ -270,7 +270,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node.js for release metadata detection
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           package-manager-cache: false
@@ -359,7 +359,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node.js for npm Trusted Publishing
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           registry-url: https://registry.npmjs.org
@@ -496,7 +496,7 @@ jobs:
       # Intentional local exception: this matrix validates the packed payload
       # under the consumer Node runtime and must not install the repository.
       - name: Setup Node.js for packed artifact smoke test
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node-version }}
 
@@ -640,7 +640,7 @@ jobs:
       # Intentional local exception: npm Trusted Publishing requires the
       # registry-configured Node/npm pair and publishes only the exact tgz.
       - name: Setup Node.js for npm Trusted Publishing
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           registry-url: https://registry.npmjs.org
