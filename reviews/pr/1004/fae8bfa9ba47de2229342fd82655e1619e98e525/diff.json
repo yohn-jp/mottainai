@@ -1,0 +1,70 @@
+{
+  "baseSha": "152da3c3a61900fa65db8b0abce44fdcb170b73b",
+  "files": [
+    {
+      "additions": 5,
+      "deletions": 5,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 85,
+          "oldLines": 1,
+          "oldStart": 85
+        },
+        {
+          "newLines": 1,
+          "newStart": 273,
+          "oldLines": 1,
+          "oldStart": 273
+        },
+        {
+          "newLines": 1,
+          "newStart": 362,
+          "oldLines": 1,
+          "oldStart": 362
+        },
+        {
+          "newLines": 1,
+          "newStart": 499,
+          "oldLines": 1,
+          "oldStart": 499
+        },
+        {
+          "newLines": 1,
+          "newStart": 643,
+          "oldLines": 1,
+          "oldStart": 643
+        }
+      ],
+      "path": ".github/workflows/publish.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 152,
+          "oldLines": 1,
+          "oldStart": 152
+        },
+        {
+          "newLines": 1,
+          "newStart": 333,
+          "oldLines": 1,
+          "oldStart": 333
+        }
+      ],
+      "path": ".github/workflows/review-pages.yml",
+      "status": "modified"
+    }
+  ],
+  "headSha": "fae8bfa9ba47de2229342fd82655e1619e98e525",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 7,
+    "deletions": 7,
+    "filesChanged": 2
+  }
+}
