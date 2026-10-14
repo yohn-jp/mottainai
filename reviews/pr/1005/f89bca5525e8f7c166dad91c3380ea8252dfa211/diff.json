@@ -1,0 +1,92 @@
+{
+  "baseSha": "152da3c3a61900fa65db8b0abce44fdcb170b73b",
+  "files": [
+    {
+      "additions": 14,
+      "deletions": 14,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 13,
+          "oldLines": 1,
+          "oldStart": 13
+        },
+        {
+          "newLines": 1,
+          "newStart": 77,
+          "oldLines": 1,
+          "oldStart": 77
+        },
+        {
+          "newLines": 2,
+          "newStart": 637,
+          "oldLines": 2,
+          "oldStart": 637
+        },
+        {
+          "newLines": 1,
+          "newStart": 1960,
+          "oldLines": 1,
+          "oldStart": 1960
+        },
+        {
+          "newLines": 1,
+          "newStart": 1963,
+          "oldLines": 1,
+          "oldStart": 1963
+        },
+        {
+          "newLines": 1,
+          "newStart": 1978,
+          "oldLines": 1,
+          "oldStart": 1978
+        },
+        {
+          "newLines": 1,
+          "newStart": 1983,
+          "oldLines": 1,
+          "oldStart": 1983
+        },
+        {
+          "newLines": 1,
+          "newStart": 1999,
+          "oldLines": 1,
+          "oldStart": 1999
+        },
+        {
+          "newLines": 2,
+          "newStart": 2002,
+          "oldLines": 2,
+          "oldStart": 2002
+        },
+        {
+          "newLines": 1,
+          "newStart": 2240,
+          "oldLines": 1,
+          "oldStart": 2240
+        },
+        {
+          "newLines": 1,
+          "newStart": 2247,
+          "oldLines": 1,
+          "oldStart": 2247
+        },
+        {
+          "newLines": 1,
+          "newStart": 2273,
+          "oldLines": 1,
+          "oldStart": 2273
+        }
+      ],
+      "path": "pnpm-lock.yaml",
+      "status": "modified"
+    }
+  ],
+  "headSha": "f89bca5525e8f7c166dad91c3380ea8252dfa211",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 14,
+    "deletions": 14,
+    "filesChanged": 1
+  }
+}

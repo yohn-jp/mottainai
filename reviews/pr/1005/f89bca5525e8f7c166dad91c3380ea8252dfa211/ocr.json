@@ -1,0 +1,45 @@
+{
+  "baseSha": "152da3c3a61900fa65db8b0abce44fdcb170b73b",
+  "headSha": "f89bca5525e8f7c166dad91c3380ea8252dfa211",
+  "preview": {
+    "excluded_count": 0,
+    "excluded_files": [],
+    "from": "152da3c3a61900fa65db8b0abce44fdcb170b73b",
+    "merge_base": "152da3c3a61900fa65db8b0abce44fdcb170b73b",
+    "mode": "range",
+    "reviewable_count": 1,
+    "reviewable_files": [
+      {
+        "deletions": 14,
+        "insertions": 14,
+        "path": "pnpm-lock.yaml",
+        "status": "modified"
+      }
+    ],
+    "schema_version": "1",
+    "to": "f89bca5525e8f7c166dad91c3380ea8252dfa211",
+    "total_deletions": 14,
+    "total_files": 1,
+    "total_insertions": 14
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.4"
+  },
+  "rule": {
+    "groups": [
+      {
+        "files": [
+          "pnpm-lock.yaml"
+        ],
+        "group_id": 1,
+        "pattern": "**/*.{yaml,yml}",
+        "rule": "Check for spelling errors in yaml-keys within YAML files; ignore the content of yaml-values.",
+        "source": "system"
+      }
+    ],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}

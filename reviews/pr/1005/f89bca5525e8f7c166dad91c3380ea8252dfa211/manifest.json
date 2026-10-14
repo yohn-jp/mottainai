@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "152da3c3a61900fa65db8b0abce44fdcb170b73b",
+    "draft": false,
+    "headRef": "dependabot/npm_and_yarn/npm_and_yarn-9fb220e1b9",
+    "headSha": "f89bca5525e8f7c166dad91c3380ea8252dfa211",
+    "number": 1005,
+    "title": "chore(deps): bump @modelcontextprotocol/sdk from 1.29.0 to 1.31.0 in the npm_and_yarn group across 1 directory"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "f89bca5525e8f7c166dad91c3380ea8252dfa211",
+    "immutable": true,
+    "shortId": "f89bca5525e8"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-10-14T07:57:50.835Z"
+  }
+}
