@@ -1,0 +1,55 @@
+{
+  "baseSha": "d0b5c2d7396a07ece458aa2c5a06fa81ae9b8c31",
+  "files": [
+    {
+      "additions": 255,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 255,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "docs/contracts/product/capability-model.md",
+      "status": "added"
+    },
+    {
+      "additions": null,
+      "deletions": null,
+      "hunks": [
+        {
+          "newLines": 249,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "docs/contracts/product/product-canon.md",
+      "previousPath": "docs/product-canon.md",
+      "status": "renamed"
+    },
+    {
+      "additions": 2,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 13,
+          "oldLines": 0,
+          "oldStart": 12
+        }
+      ],
+      "path": "docs/contracts/README.md",
+      "status": "modified"
+    }
+  ],
+  "headSha": "97ef10c93dbe91341aedb0ff1be29f70de77e00b",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 257,
+    "deletions": 0,
+    "filesChanged": 3
+  }
+}

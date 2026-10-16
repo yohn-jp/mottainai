@@ -1,0 +1,39 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Define a coherent, exhaustive product-level capability taxonomy that traces every Product Canon experience, responsibility, completion rule, and success measure to explicit capabilities."
+    },
+    {
+      "checked": false,
+      "text": "Give each capability a stable identifier, clear user-visible responsibility, and outcome-based completion evidence; distinguish capability, cross-cutting invariant, and later design decision."
+    },
+    {
+      "checked": false,
+      "text": "Define cross-capability lifecycle and dependency relationships, including objective-to-completion, dependency-driven autonomy, integrated verification, authority, recovery, and truthful blocked/unverified state."
+    },
+    {
+      "checked": false,
+      "text": "Specify representative end-to-end acceptance scenarios and failure/uncertainty cases without introducing implementation commitments."
+    },
+    {
+      "checked": false,
+      "text": "Delimit human vs delegated responsibility, product boundaries, non-goals, and the architectural questions explicitly deferred to Phase 3."
+    },
+    {
+      "checked": false,
+      "text": "Publish the English capability model in the repository's normative documentation category, link it from that category's index, and create a ready-for-review PR. No product code, tests, CI, or existing architectural contracts are modified."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 1007,
+    "state": "open",
+    "title": "docs: define implementation-independent product capability model",
+    "url": "https://github.com/yohn-jp/mottainai/issues/1007"
+  },
+  "linked": {
+    "number": 1007
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
