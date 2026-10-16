@@ -10,6 +10,8 @@ system structure, chronological procedures, test evidence, or historical
 material here; use `architecture/`, `operations/`, `testing/`, `reports/`, or
 `history/`.
 
+- [Product Canon](product/product-canon.md)
+- [Product capability model](product/capability-model.md)
 - [Runtime contracts](runtime/linux-runtime.md)
 - [Bootstrap](runtime/bootstrap.md)
 - [Managed generation](runtime/managed-generation.md)
