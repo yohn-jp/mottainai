@@ -2,7 +2,7 @@
 
 **Version:** 0.1 — Proposed  
 **Status:** Phase 2 adoption candidate  
-**Authority:** [Product Canon](../../product-canon.md)  
+**Authority:** [Product Canon](product-canon.md)  
 **Scope:** Product capabilities and acceptance outcomes, independent of implementation
 
 ## 1. Purpose and interpretation
