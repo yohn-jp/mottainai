@@ -1,0 +1,40 @@
+{
+  "baseSha": "d0b5c2d7396a07ece458aa2c5a06fa81ae9b8c31",
+  "files": [
+    {
+      "additions": 255,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 255,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "docs/contracts/product/capability-model.md",
+      "status": "added"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 13,
+          "oldLines": 0,
+          "oldStart": 12
+        }
+      ],
+      "path": "docs/contracts/README.md",
+      "status": "modified"
+    }
+  ],
+  "headSha": "01f2741ce3e2344bfd8502622045917336066731",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 256,
+    "deletions": 0,
+    "filesChanged": 2
+  }
+}
