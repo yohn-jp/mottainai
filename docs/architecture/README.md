@@ -8,6 +8,7 @@ Place structure and responsibility descriptions here. Do not place command
 sequences, bounded compatibility contracts, test results, or operational
 runbooks here; use `contracts/`, `testing/`, `reports/`, or `operations/`.
 
+- [Target product architecture](product/target-architecture.md)
 - [Runtime architecture](runtime/README.md)
 - [Runtime lifecycle](runtime/lifecycle.md)
 - [Lima/provider orchestration](runtime/lima-orchestration.md)
