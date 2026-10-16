@@ -1,0 +1,26 @@
+{
+  "baseSha": "152da3c3a61900fa65db8b0abce44fdcb170b73b",
+  "files": [
+    {
+      "additions": 249,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 249,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "docs/product-canon.md",
+      "status": "added"
+    }
+  ],
+  "headSha": "e4830490efbb4cac73c1c5af2d63ff557d44228b",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 249,
+    "deletions": 0,
+    "filesChanged": 1
+  }
+}
