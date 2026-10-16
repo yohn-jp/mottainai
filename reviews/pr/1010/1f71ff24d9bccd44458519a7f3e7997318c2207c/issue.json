@@ -1,0 +1,39 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Specify a complete logical decomposition, interaction/data flows, and an explicit owner for each authoritative fact (objective, authorization, task graph, readiness, resource allocation, execution, workspace, external effects, evidence, integration, acceptance)."
+    },
+    {
+      "checked": false,
+      "text": "Define durable identities, lifecycle/transition ownership, concurrency and conflict handling, at-least-once commands, uncertain side effects, restart/reconciliation and safe retry without claiming impossible exactly-once guarantees."
+    },
+    {
+      "checked": false,
+      "text": "Define security/trust boundaries, least privilege, secrets/context treatment, resource/cost optimization, evidence/provenance and human decision escalation."
+    },
+    {
+      "checked": false,
+      "text": "Define interfaces and deployment-neutral failure behavior, including absent resources and temporary provider unavailability; document architectural decisions and rejected alternatives."
+    },
+    {
+      "checked": false,
+      "text": "Trace all 36 Product Capability Model IDs and the 18 product-level end-to-end scenarios to structural responsibilities and certification seams; separate Phase 4 implementation planning and technical platform selection."
+    },
+    {
+      "checked": false,
+      "text": "Add a well-placed architecture document and link it from the architecture index; review relative links and documentation-only diff; publish a ready-for-review PR without merging or changing executable code, existing contracts or other Issues."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 1009,
+    "state": "open",
+    "title": "docs: define outcome-driven target product architecture",
+    "url": "https://github.com/yohn-jp/mottainai/issues/1009"
+  },
+  "linked": {
+    "number": 1009
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

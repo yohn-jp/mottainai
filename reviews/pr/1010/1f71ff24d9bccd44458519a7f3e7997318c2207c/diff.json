@@ -1,0 +1,40 @@
+{
+  "baseSha": "8510b7b15a702d29f21b2d54a0cd5292e6f10815",
+  "files": [
+    {
+      "additions": 435,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 435,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "docs/architecture/product/target-architecture.md",
+      "status": "added"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 11,
+          "oldLines": 0,
+          "oldStart": 10
+        }
+      ],
+      "path": "docs/architecture/README.md",
+      "status": "modified"
+    }
+  ],
+  "headSha": "1f71ff24d9bccd44458519a7f3e7997318c2207c",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 436,
+    "deletions": 0,
+    "filesChanged": 2
+  }
+}

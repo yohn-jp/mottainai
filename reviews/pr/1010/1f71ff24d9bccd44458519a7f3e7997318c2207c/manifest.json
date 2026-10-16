@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "8510b7b15a702d29f21b2d54a0cd5292e6f10815",
+    "draft": false,
+    "headRef": "docs/1009-target-product-architecture",
+    "headSha": "1f71ff24d9bccd44458519a7f3e7997318c2207c",
+    "number": 1010,
+    "title": "docs: define target product architecture (#1009)"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "1f71ff24d9bccd44458519a7f3e7997318c2207c",
+    "immutable": true,
+    "shortId": "1f71ff24d9bc"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-10-16T11:19:04.438Z"
+  }
+}
