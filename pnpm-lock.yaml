@@ -10,7 +10,7 @@ importers:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.11.0
-        version: 1.29.0(supports-color@7.2.0)(zod@3.25.76)
+        version: 1.31.0(supports-color@7.2.0)(zod@3.25.76)
       '@xterm/addon-fit':
         specifier: ^0.11.0
         version: 0.11.0
@@ -74,7 +74,7 @@ importers:
     dependencies:
       '@earendil-works/pi-coding-agent':
         specifier: 0.87.0
-        version: 0.87.0(@modelcontextprotocol/sdk@1.29.0(supports-color@7.2.0)(zod@3.25.76))(supports-color@7.2.0)(ws@8.21.3)(zod@3.25.76)
+        version: 0.87.0(@modelcontextprotocol/sdk@1.31.0(supports-color@7.2.0)(zod@3.25.76))(supports-color@7.2.0)(ws@8.21.3)(zod@3.25.76)
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -634,8 +634,8 @@ packages:
     resolution: {integrity: sha512-bV0Tgo9K4hfPCek+aMAn81RppFKv2ySDQeMoSZuvTASywNTnVJCArCZE2FWqpvIatKu7VMRLWlR1EazvVhDyhQ==}
     engines: {node: '>=18.18'}
 
-  '@modelcontextprotocol/sdk@1.29.0':
-    resolution: {integrity: sha512-zo37mZA9hJWpULgkRpowewez1y6ML5GsXJPY8FI0tBBCd77HEvza4jDqRKOXgHNn867PVGCyTdzqpz0izu5ZjQ==}
+  '@modelcontextprotocol/sdk@1.31.0':
+    resolution: {integrity: sha512-UvTMgnNlnIBO/22ob2RcVGDlcvOslQs8T59+FTGdA0L27a39fdGF/EDETNtDVK4DZGpwomlsYpRdA8UXcVL/pw==}
     engines: {node: '>=18'}
     peerDependencies:
       '@cfworker/json-schema': ^4.1.1
@@ -1957,10 +1957,10 @@ snapshots:
     dependencies:
       esbuild: 0.28.2
 
-  '@earendil-works/pi-agent-core@0.87.0(@modelcontextprotocol/sdk@1.29.0(supports-color@7.2.0)(zod@3.25.76))(supports-color@7.2.0)(ws@8.21.3)(zod@3.25.76)':
+  '@earendil-works/pi-agent-core@0.87.0(@modelcontextprotocol/sdk@1.31.0(supports-color@7.2.0)(zod@3.25.76))(supports-color@7.2.0)(ws@8.21.3)(zod@3.25.76)':
     dependencies:
       '@earendil-works/chord': 0.87.0
-      '@earendil-works/pi-ai': 0.87.0(@modelcontextprotocol/sdk@1.29.0(supports-color@7.2.0)(zod@3.25.76))(supports-color@7.2.0)(ws@8.21.3)(zod@3.25.76)
+      '@earendil-works/pi-ai': 0.87.0(@modelcontextprotocol/sdk@1.31.0(supports-color@7.2.0)(zod@3.25.76))(supports-color@7.2.0)(ws@8.21.3)(zod@3.25.76)
       '@earendil-works/pi-telemetry': 0.87.0
       diff: 8.0.4
       ignore: 7.0.8
@@ -1975,12 +1975,12 @@ snapshots:
       - ws
       - zod
 
-  '@earendil-works/pi-ai@0.87.0(@modelcontextprotocol/sdk@1.29.0(supports-color@7.2.0)(zod@3.25.76))(supports-color@7.2.0)(ws@8.21.3)(zod@3.25.76)':
+  '@earendil-works/pi-ai@0.87.0(@modelcontextprotocol/sdk@1.31.0(supports-color@7.2.0)(zod@3.25.76))(supports-color@7.2.0)(ws@8.21.3)(zod@3.25.76)':
     dependencies:
       '@anthropic-ai/sdk': 0.124.0(zod@3.25.76)
       '@aws-sdk/client-bedrock-runtime': 3.1127.0
       '@earendil-works/pi-telemetry': 0.87.0
-      '@google/genai': 2.21.0(@modelcontextprotocol/sdk@1.29.0(supports-color@7.2.0)(zod@3.25.76))(supports-color@7.2.0)
+      '@google/genai': 2.21.0(@modelcontextprotocol/sdk@1.31.0(supports-color@7.2.0)(zod@3.25.76))(supports-color@7.2.0)
       '@smithy/node-http-handler': 4.12.1
       http-proxy-agent: 9.1.0(supports-color@7.2.0)
       https-proxy-agent: 9.1.0(supports-color@7.2.0)
@@ -1996,11 +1996,11 @@ snapshots:
       - ws
       - zod
 
-  '@earendil-works/pi-coding-agent@0.87.0(@modelcontextprotocol/sdk@1.29.0(supports-color@7.2.0)(zod@3.25.76))(supports-color@7.2.0)(ws@8.21.3)(zod@3.25.76)':
+  '@earendil-works/pi-coding-agent@0.87.0(@modelcontextprotocol/sdk@1.31.0(supports-color@7.2.0)(zod@3.25.76))(supports-color@7.2.0)(ws@8.21.3)(zod@3.25.76)':
     dependencies:
       '@earendil-works/chord': 0.87.0
-      '@earendil-works/pi-agent-core': 0.87.0(@modelcontextprotocol/sdk@1.29.0(supports-color@7.2.0)(zod@3.25.76))(supports-color@7.2.0)(ws@8.21.3)(zod@3.25.76)
-      '@earendil-works/pi-ai': 0.87.0(@modelcontextprotocol/sdk@1.29.0(supports-color@7.2.0)(zod@3.25.76))(supports-color@7.2.0)(ws@8.21.3)(zod@3.25.76)
+      '@earendil-works/pi-agent-core': 0.87.0(@modelcontextprotocol/sdk@1.31.0(supports-color@7.2.0)(zod@3.25.76))(supports-color@7.2.0)(ws@8.21.3)(zod@3.25.76)
+      '@earendil-works/pi-ai': 0.87.0(@modelcontextprotocol/sdk@1.31.0(supports-color@7.2.0)(zod@3.25.76))(supports-color@7.2.0)(ws@8.21.3)(zod@3.25.76)
       '@earendil-works/pi-tui': 0.87.0
       '@silvia-odwyer/photon-node': 0.3.4
       chalk: 6.0.0
@@ -2237,14 +2237,14 @@ snapshots:
       '@eslint/core': 0.15.2
       levn: 0.4.1
 
-  '@google/genai@2.21.0(@modelcontextprotocol/sdk@1.29.0(supports-color@7.2.0)(zod@3.25.76))(supports-color@7.2.0)':
+  '@google/genai@2.21.0(@modelcontextprotocol/sdk@1.31.0(supports-color@7.2.0)(zod@3.25.76))(supports-color@7.2.0)':
     dependencies:
       google-auth-library: 10.9.1(supports-color@7.2.0)
       p-retry: 4.6.2
       protobufjs: 7.6.6
       ws: 8.21.3
     optionalDependencies:
-      '@modelcontextprotocol/sdk': 1.29.0(supports-color@7.2.0)(zod@3.25.76)
+      '@modelcontextprotocol/sdk': 1.31.0(supports-color@7.2.0)(zod@3.25.76)
     transitivePeerDependencies:
       - bufferutil
       - supports-color
@@ -2270,7 +2270,7 @@ snapshots:
 
   '@humanwhocodes/retry@0.4.3': {}
 
-  '@modelcontextprotocol/sdk@1.29.0(supports-color@7.2.0)(zod@3.25.76)':
+  '@modelcontextprotocol/sdk@1.31.0(supports-color@7.2.0)(zod@3.25.76)':
     dependencies:
       '@hono/node-server': 1.19.17(hono@4.13.12)
       ajv: 8.20.0
