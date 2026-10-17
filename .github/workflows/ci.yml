@@ -110,7 +110,7 @@ jobs:
           sha256sum mottainai-init-linux-x86_64 > mottainai-init-linux-x86_64.sha256
 
       - name: Upload host bootstrap release artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mottainai-init-linux-x86_64
           path: |
@@ -1047,7 +1047,7 @@ jobs:
 
       - name: Upload provider-independent Runtime certification evidence (Issue #904)
         if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mottainai-runtime-certification-x86_64-linux
           path: |
@@ -1128,7 +1128,7 @@ jobs:
 
       - name: Upload the trusted-main certified Runtime Appliance (Issue #894)
         if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mottainai-runtime-appliance-certified-x86_64-linux
           path: ${{ env.CERTIFIED_RUNTIME_APPLIANCE_DIRECTORY }}/*
@@ -1231,7 +1231,7 @@ jobs:
           echo "RUNTIME_APPLIANCE_DIRECTORY=$RUNNER_TEMP/runtime-appliance-forwarded" >> "$GITHUB_ENV"
 
       - name: Upload the certified Runtime Appliance as the canonical artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mottainai-runtime-appliance-x86_64-linux
           path: ${{ env.RUNTIME_APPLIANCE_DIRECTORY }}/*
