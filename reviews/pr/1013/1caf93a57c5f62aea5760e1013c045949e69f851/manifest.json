@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "d869abd45f8ca8d01a869ec362749b5122d0bf6d",
+    "draft": false,
+    "headRef": "dependabot/cargo/host-bootstrap/cargo-8681492501",
+    "headSha": "1caf93a57c5f62aea5760e1013c045949e69f851",
+    "number": 1013,
+    "title": "chore(deps): bump rustls from 0.23.43 to 0.23.46 in /host-bootstrap in the cargo group across 1 directory"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "1caf93a57c5f62aea5760e1013c045949e69f851",
+    "immutable": true,
+    "shortId": "1caf93a57c5f"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-11-02T15:58:34.325Z"
+  }
+}

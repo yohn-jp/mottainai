@@ -1,0 +1,32 @@
+{
+  "baseSha": "d869abd45f8ca8d01a869ec362749b5122d0bf6d",
+  "files": [
+    {
+      "additions": 2,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 868,
+          "oldLines": 1,
+          "oldStart": 868
+        },
+        {
+          "newLines": 1,
+          "newStart": 870,
+          "oldLines": 1,
+          "oldStart": 870
+        }
+      ],
+      "path": "host-bootstrap/Cargo.lock",
+      "status": "modified"
+    }
+  ],
+  "headSha": "1caf93a57c5f62aea5760e1013c045949e69f851",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 2,
+    "deletions": 2,
+    "filesChanged": 1
+  }
+}
