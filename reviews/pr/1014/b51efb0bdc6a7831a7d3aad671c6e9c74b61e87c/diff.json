@@ -1,0 +1,26 @@
+{
+  "baseSha": "d869abd45f8ca8d01a869ec362749b5122d0bf6d",
+  "files": [
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 147,
+          "oldLines": 1,
+          "oldStart": 147
+        }
+      ],
+      "path": ".github/workflows/review-pages.yml",
+      "status": "modified"
+    }
+  ],
+  "headSha": "b51efb0bdc6a7831a7d3aad671c6e9c74b61e87c",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 1,
+    "deletions": 1,
+    "filesChanged": 1
+  }
+}
