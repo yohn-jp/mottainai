@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "d869abd45f8ca8d01a869ec362749b5122d0bf6d",
+    "draft": false,
+    "headRef": "dependabot/github_actions/oras-project/setup-oras-2.0.4",
+    "headSha": "fc3e87b75746915850bba6576088957aa840431f",
+    "number": 1015,
+    "title": "chore(deps): bump oras-project/setup-oras from 2.0.1 to 2.0.4"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "fc3e87b75746915850bba6576088957aa840431f",
+    "immutable": true,
+    "shortId": "fc3e87b75746"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-11-22T03:23:10.463Z"
+  }
+}

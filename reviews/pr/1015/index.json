@@ -1,0 +1,10 @@
+{
+  "latest": {
+    "generatedAt": "2026-11-22T03:23:10.463Z",
+    "headSha": "fc3e87b75746915850bba6576088957aa840431f",
+    "path": "1015/fc3e87b75746915850bba6576088957aa840431f/manifest.json",
+    "shortId": "fc3e87b75746"
+  },
+  "number": 1015,
+  "schemaVersion": "mottainai.review-pages.pr-index/v1"
+}
